@@ -69,7 +69,7 @@ def top_tsalkers(max_talkers=10):
     print("Getting top talkers...")
 
     messages = 0
-    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message" ORDER BY id;"""):
+    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message" ORDER BY timestamp;"""):
         message = json.loads(message)
 
         if name not in talkers:
@@ -333,5 +333,5 @@ if __name__ == "__main__":
         out.write("</table>\n")
 
 
-    out.write("<p>Generated %s</p>\n" % datetime.datetime.now(localtz).strftime("%d. %B %Y %H:%M"))
+    out.write("<p>Generated %s with <a href='https://github.com/petrinm/tgstats'>tgstats</a></p>\n" % datetime.datetime.now(localtz).strftime("%d. %B %Y %H:%M"))
     out.write("\n</div>\n</body></html>")
