@@ -17,14 +17,21 @@ Dependencies
 Getting started
 ---
 
+0) Dependencies libevent-dev, libssl-dev... (TODO)
+
 1) Download and compile telegram-cli. Use the test branch!
 ```
 git clone --recursive -b test https://github.com/vysheng/tg.git tg-test && cd tg-test
-./configure
+./configure --disable-liblua
 make
 ```
 
-2) Start the client with JSON support
+1½) Install python stuff
+```
+pip3 install pytg
+```
+
+2) Start the client with JSON support (Do the registration!)
 ```
 ./bin/telegram-cli --json -P 4458
 ```
@@ -43,12 +50,12 @@ Remove the offset file when you need to start from the beginning or use
 Note: When executed the first time initdb is required.
 
 ```
-$ ./dump.py --initdb --id <your id> --name test
+$ ./dump.py test --initdb --id <your id>
 ```
 
 5) To update or continue dumping
 ```
-$ ./dump.py --id <your id> --name test (--continue)
+$ ./dump.py test --id <your id> [--continue]
 ```
 
 6) Generate stats

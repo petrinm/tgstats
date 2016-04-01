@@ -9,12 +9,13 @@ from pytg.receiver import Receiver
 
 
 
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Process some integers.')
-    parser.add_argument('--name', action="store", default="", help="Will be used as database name")
-    parser.add_argument('--id', action="store", default="", help="Channel ID")
-    parser.add_argument('--step', action="store", default=100, help="Channel ID")
+    parser.add_argument('name', type=str, help="Will be used as database name")
+    parser.add_argument('--id', action="store", default="", help="Channel ID (needed only with initdb!)")
+    parser.add_argument('--step', action="store", default=100, help="Number of messages loaded per query")
     parser.add_argument('--dialogs', action='store_true', help="List all dialogs")
     parser.add_argument('--initdb', action='store_true', help="Initalise database")
     parser.add_argument('--continue', dest='continue_dump', action='store_true', help="Continue dumping after interrup")
@@ -34,12 +35,7 @@ if __name__ == "__main__":
     if len(args.name) < 2:
         print("Invalid name!")
 
-    # Check ID
-    if len(args.id) != 32:
-        print("Invalid dialog ID!", args.id)
-        sys.exit(1)
-    else:
-        args.id = "$" + args.id
+
 
 
     # Open the database
@@ -49,8 +45,29 @@ if __name__ == "__main__":
     # Init database
     if args.initdb:
         print("Creating tables..")
-        c.execute('''CREATE TABLE messages (id INTEGER, timestamp INTEGER, json TEXT, event CHAR(16))''')
+        # ID on 48 merkkiäpitkä hexa
+        c.execute('''CREATE TABLE messages (id CHAR(48), timestamp INTEGER, json TEXT, event CHAR(16))''')
+        c.execute('''CREATE TABLE users (id CHAR(), full_name CHAR(32), json TEXT)''')
         c.execute('''CREATE UNIQUE INDEX messages_id ON messages (id);''')
+
+        # Check ID
+        if len(args.id) != 32:
+            print("Invalid dialog ID!", args.id)
+            sys.exit(1)
+        else:
+            channel_id = "$" + args.id
+
+    else:
+
+        if args.id != "":
+            print("Given ID is ignored!")
+
+        # Get the ID from the database!
+        c.execute("SELECT json FROM messages LIMIT 1;")
+        ret = json.loads(c.fetchone()[0])
+        channel_id = ret["to"]["id"]
+
+        print("ID:", channel_id)
 
 
     if args.continue_dump:
@@ -67,7 +84,7 @@ if __name__ == "__main__":
 
     while True:
         try:
-            res = sender.history(args.id, args.step, offset)
+            res = sender.history(channel_id, args.step, offset)
             if "error" in res:
                 print(res)
                 break
