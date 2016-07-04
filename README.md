@@ -26,9 +26,11 @@ git clone --recursive -b test https://github.com/vysheng/tg.git tg-test && cd tg
 make
 ```
 
-1½) Install python stuff
+1½) Install Python dependencies.. etc
 ```
+sudo apt-get install python3-matplotlib 
 pip3 install pytg
+etc...
 ```
 
 2) Start the client with JSON support (Do the registration!)
@@ -52,11 +54,15 @@ Note: When executed the first time initdb is required.
 ```
 $ ./dump.py test --initdb --id <your id>
 ```
+Kill the script with CTRL+C when it starts to complain about empty responses.
+
 
 5) To update or continue dumping without reseting request index
 ```
 $ ./dump.py test [--continue]
 ```
+Kill the scripts with CTRL+C after message id collisions start to occur.
+
 
 6) Generate stats
 ```
