@@ -4,7 +4,6 @@ import argparse
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import sqlite3, json, datetime
-from pytz import timezone
 import math, os, re
 
 
@@ -16,11 +15,11 @@ def chat_renames():
     print("Getting topics...")
 
     renames = []
-    for sid, timestamp, service  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="service" ORDER BY id DESC;"""):
+    for sid, timestamp, service  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="service" ORDER BY timestamp;"""):
         service = json.loads(service)
         if service["action"]["type"] == "chat_rename":
             renames.append((
-                datetime.datetime.fromtimestamp(timestamp, localtz),
+                datetime.datetime.fromtimestamp(timestamp),
                 service["action"]["title"],
                 service["from"]["print_name"].replace("_", " ")
             ))
@@ -36,7 +35,7 @@ def talker_stats(max_talkers=10):
     print("Getting top talkers...")
     i = 0
     talkers = {}
-    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message" ORDER BY id;"""):
+    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message";"""):
         message = json.loads(message)
         name = message["from"]["print_name"]
 
@@ -70,7 +69,7 @@ def most_commonly_used_words():
     print("Getting most commonly used words...")
 
     words = {}
-    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message" ORDER BY id;"""):
+    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message";"""):
         message = json.loads(message)
 
         if "text" not in message:
@@ -103,7 +102,7 @@ def population_graph(filepath="aski_population.png", show=False):
         if action_type not in ["chat_add_user", "chat_add_user_link", "chat_del_user"]:
             continue
 
-        timestamp = datetime.datetime.fromtimestamp(timestamp, localtz)
+        timestamp = datetime.datetime.fromtimestamp(timestamp)
         date = datetime.date(timestamp.year, timestamp.month, timestamp.day)
 
         #  Init table for the date
@@ -183,8 +182,8 @@ def hourly_rate(timespan=3600):
             top_date = (buff[0], buff[-1])
             #print(top_date, top_rate, message["text"])
 
-    return top_rate, datetime.datetime.fromtimestamp(top_date[0], localtz), \
-           datetime.datetime.fromtimestamp(top_date[1], localtz)
+    return top_rate, datetime.datetime.fromtimestamp(top_date[0]), \
+           datetime.datetime.fromtimestamp(top_date[1])
 
 
 def messages_graph(filepath="messages.png", show=True):
@@ -198,7 +197,7 @@ def messages_graph(filepath="messages.png", show=True):
     for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message" ORDER BY timestamp;"""):
         message = json.loads(message)
 
-        timestamp = datetime.datetime.fromtimestamp(timestamp, localtz)
+        timestamp = datetime.datetime.fromtimestamp(timestamp)
         date = datetime.date(timestamp.year, timestamp.month, timestamp.day)
 
         #  Init table for the date
@@ -244,7 +243,7 @@ def activity_graph(filepath="activity.png", show=True):
     for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message" ORDER BY id;"""):
         message = json.loads(message)
 
-        timestamp = datetime.datetime.fromtimestamp(timestamp, localtz)
+        timestamp = datetime.datetime.fromtimestamp(timestamp)
         messages[timestamp.hour] += 1
 
     fig, ax = plt.subplots()
@@ -280,8 +279,6 @@ if __name__ == "__main__":
 
     if len(args.name) < 3:
         print("Invalid name!")
-
-    localtz = timezone('Europe/Helsinki')
 
     conn = sqlite3.connect("%s.db" % args.name)
     c = conn.cursor()
@@ -386,5 +383,5 @@ if __name__ == "__main__":
         out.write("</table>\n")
 
 
-    out.write("<p>Generated %s with <a href='https://github.com/petrinm/tgstats'>tgstats</a></p>\n" % datetime.datetime.now(localtz).strftime("%d. %B %Y %H:%M"))
+    out.write("<p>Generated %s with <a href='https://github.com/petrinm/tgstats'>tgstats</a></p>\n" % datetime.datetime.now().strftime("%d. %B %Y %H:%M"))
     out.write("\n</div>\n</body></html>")
