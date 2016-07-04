@@ -12,8 +12,8 @@ from pytg.receiver import Receiver
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description='Process some integers.')
-    parser.add_argument('name', type=str, help="Will be used as database name")
+    parser = argparse.ArgumentParser(description='Dump telegram logs to SQLite3 database')
+    parser.add_argument('name', type=str, nargs='?', default="", help="Database name")
     parser.add_argument('--id', action="store", default="", help="Channel ID (needed only with initdb!)")
     parser.add_argument('--step', action="store", default=100, help="Number of messages loaded per query")
     parser.add_argument('--dialogs', action='store_true', help="List all dialogs")
@@ -33,8 +33,8 @@ if __name__ == "__main__":
 
     # Check name
     if len(args.name) < 2:
-        print("Invalid name!")
-
+        print("Invalid database name!")
+        sys.exit(1)
 
 
 
@@ -46,8 +46,8 @@ if __name__ == "__main__":
     if args.initdb:
         print("Creating tables..")
         # ID on 48 merkkiäpitkä hexa
-        c.execute('''CREATE TABLE messages (id CHAR(48), timestamp INTEGER, json TEXT, event CHAR(16))''')
-        c.execute('''CREATE TABLE users (id CHAR(), full_name CHAR(32), json TEXT)''')
+        c.execute('''CREATE TABLE messages (id CHAR(48), timestamp INTEGER, json TEXT, event CHAR(16));''')
+        #c.execute('''CREATE TABLE users (id CHAR(48), full_name CHAR(32), json TEXT);''')
         c.execute('''CREATE UNIQUE INDEX messages_id ON messages (id);''')
 
         # Check ID
@@ -63,9 +63,13 @@ if __name__ == "__main__":
             print("Given ID is ignored!")
 
         # Get the ID from the database!
-        c.execute("SELECT json FROM messages LIMIT 1;")
-        ret = json.loads(c.fetchone()[0])
-        channel_id = ret["to"]["id"]
+        try:
+            c.execute("SELECT json FROM messages LIMIT 1;")
+            ret = json.loads(c.fetchone()[0])
+            channel_id = ret["to"]["id"]
+        except (sqlite3.OperationalError, KeyError, ValueError):
+            print("Failed to read channel ID! Uninitialized or empty database!")
+            sys.exit(1)
 
         print("ID:", channel_id)
 
@@ -79,10 +83,14 @@ if __name__ == "__main__":
     else:
         offset = 0
 
+
+    empties = 0
     print("Offset:", offset)
 
-
     while True:
+
+        new_messages = 0
+
         try:
             res = sender.history(channel_id, args.step, offset)
             if "error" in res:
@@ -90,6 +98,11 @@ if __name__ == "__main__":
                 break
         except (IllegalResponseException, NoResponse):
             print("Empty response")
+
+            empties += 1
+            if empties > 5:
+                sys.exit(1)
+
             time.sleep(2)
             continue
 
@@ -98,6 +111,7 @@ if __name__ == "__main__":
                 c.execute("INSERT INTO messages VALUES (?, ?, ?, ?)", (msg.id, msg.date, json.dumps(msg), msg.event))
                 conn.commit()
                 print("Added", msg.id)
+                new_messages += 1
             except sqlite3.IntegrityError:
                 print("Collision", msg.id)
 
@@ -105,3 +119,6 @@ if __name__ == "__main__":
         with open("%s_offset" % args.name, "w") as f:
             f.write("%d" % offset)
         print("Offset", offset)
+
+        if not args.continue_dump and new_messages == 0:
+            break
