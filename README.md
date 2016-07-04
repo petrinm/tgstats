@@ -53,9 +53,9 @@ Note: When executed the first time initdb is required.
 $ ./dump.py test --initdb --id <your id>
 ```
 
-5) To update or continue dumping
+5) To update or continue dumping without reseting request index
 ```
-$ ./dump.py test --id <your id> [--continue]
+$ ./dump.py test [--continue]
 ```
 
 6) Generate stats

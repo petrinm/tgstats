@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import sqlite3, json, datetime
 from pytz import timezone
-import math, os
+import math, os, re
 
 
 def chat_renames():
@@ -45,7 +45,7 @@ def talker_stats(max_talkers=10):
 
         if "text" in message:
             talkers[name][0] += 1
-            talkers[name][1] += len(message["text"].split())
+            talkers[name][1] += len(re.findall('[a-zäöå]{2,}', message["text"], flags=re.IGNORECASE))
 
         elif "media" in message:
             media_type = message["media"]["type"]
@@ -61,25 +61,28 @@ def talker_stats(max_talkers=10):
 
     return talkers.items()
 
-def top_tsalkers(max_talkers=10):
+
+def most_commonly_used_words():
     """"
-        Return list of top talkers in decending order
+        Return list of most commonly used words
     """
 
-    print("Getting top talkers...")
+    print("Getting most commonly used words...")
 
-    messages = 0
-    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message" ORDER BY timestamp;"""):
+    words = {}
+    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message" ORDER BY id;"""):
         message = json.loads(message)
 
-        if name not in talkers:
-            talkers[name] = 0
+        if "text" not in message:
+            continue
 
-        talkers[name] += 1
+        for mword in re.findall('[a-zäöå]{2,}', message["text"], flags=re.IGNORECASE):
+            if mword not in words:
+                words[mword] = 1
+            else:
+                words[mword] += 1
 
-    return messages, stickers, pictures
-
-
+    return sorted(words.items(), key=lambda x: x[1], reverse=True)
 
 
 def population_graph(filepath="aski_population.png", show=False):
@@ -117,6 +120,9 @@ def population_graph(filepath="aski_population.png", show=False):
             population[date][0] = total
             population[date][2] -= 1
 
+    # TODO: Add today to the list if doesn't exist
+    #if population[-1] != today:
+    #    population[today] = [total, 0, 0]
 
     dates = []
     members = []
@@ -151,18 +157,45 @@ def population_graph(filepath="aski_population.png", show=False):
         plt.show()
 
 
+def hourly_rate(timespan=3600):
+    """
+        Calculate most messages inside the timespan
+    """
+
+    print("Calculating message rates...")
+
+    buff = []
+    top_date, top_rate = (0, 0), 0
+
+    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message" ORDER BY timestamp;"""):
+        message = json.loads(message)
+
+        # Append new message to the buffer
+        if "text" in message:
+            buff.append(timestamp)
+
+        # Filter old messages
+        buff = [x for x in buff if x + timespan > timestamp]
+
+        if len(buff) > top_rate:
+            top_rate = len(buff)
+            top_date = (buff[0], buff[-1])
+            #print(top_date, top_rate, message["text"])
+
+    return top_rate, datetime.datetime.fromtimestamp(top_date[0], localtz), \
+           datetime.datetime.fromtimestamp(top_date[1], localtz)
+
 
 def messages_graph(filepath="messages.png", show=True):
 
     print("Creating messages graphs...")
 
     messages = {}
-
     prev_date = None
+
 
     for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message" ORDER BY timestamp;"""):
         message = json.loads(message)
-
 
         timestamp = datetime.datetime.fromtimestamp(timestamp, localtz)
         date = datetime.date(timestamp.year, timestamp.month, timestamp.day)
@@ -230,6 +263,7 @@ def activity_graph(filepath="activity.png", show=True):
         plt.show()
 
 
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='')
@@ -240,17 +274,20 @@ if __name__ == "__main__":
     parser.add_argument('--no-general', action='store_true', help="Disable general stats")
     parser.add_argument('--no-talkers', action='store_true', help="Disable top talkers")
     parser.add_argument('--no-topics', action='store_true', help="Disable topic list")
+    parser.add_argument('--no-words', action='store_true', help="Disable most commonly used words list")
     args = parser.parse_args()
 
     if len(args.name) < 3:
         print("Invalid name!")
-
 
     localtz = timezone('Europe/Helsinki')
 
     conn = sqlite3.connect("%s.db" % args.name)
     c = conn.cursor()
 
+    #hourly_rate()s
+    #most_commonly_used_words()
+    #raise
 
     # Try to create a folder
     try:
@@ -265,18 +302,21 @@ if __name__ == "__main__":
     if not args.no_activity:
         activity_graph("%s/activity.png" % args.name, show=False)
 
+
     out = open("%s/index.html" % args.name, "w")
 
     out.write("""<!DOCTYPE html><html lang="en"><head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>%s</title>
+    <title>%s Telegram Statistics</title>
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" crossorigin="anonymous">
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" crossorigin="anonymous"></script>
+
     </head><body>
     <div class="container">
-    """ % "ASki Telegram Statistics")
+    """ % args.name)
 
-    out.write("<h1>%s</h1>" % "ASki Telegram Statistics")
+    out.write("<h1>%s Telegram Statistics</h1>" % args.name)
 
     if not args.no_general or not args.no_talkers:
         talkers = talker_stats()
@@ -296,6 +336,7 @@ if __name__ == "__main__":
     if not args.no_general:
         out.write("<h2>General numbers</h2>\n<table class='table tabler-striped'>\n")
 
+        top_rate, top_start, top_end = hourly_rate()
         messages = 0
         stickers = 0
         photos = 0
@@ -305,6 +346,7 @@ if __name__ == "__main__":
             photos += stats[3]
 
         out.write("<tr><td>Messages</td><td>%d</td></tr>\n" % messages)
+        out.write("<tr><td>Top speed</td><td>%d messages/hour (%s-%s)</td></tr>\n" % (top_rate, top_start.strftime("%d. %B %Y %I:%M"), top_end.strftime("%I:%M")))
         out.write("<tr><td>Stickers</td><td>%d</td></tr>\n" % stickers)
         out.write("<tr><td>Media</td><td>%d</td></tr>\n" % photos)
         #out.write("<tr><td>Videos</td><td>TODO</td></tr>\n")
@@ -317,12 +359,19 @@ if __name__ == "__main__":
         top_talkers = sorted(talkers, key=lambda x: x[1][0], reverse=True)[:15]
 
         out.write("<h2>Top 15 Talkers</h2>\n<table class='table tabler-striped'>\n")
-        out.write("\t<tr><th>#</th><th>Talker</th><th>Messages</th><th>Words</th><th>Stickers</th><th>Media</th></tr>\n")
+        out.write("\t<tr><th>#</th><th>Talker</th><th>Messages</th><th>Words</th><th>WPM</th><th>Stickers</th><th>Media</th></tr>\n")
         pos = 1
         for talker, (messages, words, stickers, photos) in top_talkers:
-            out.write("\t<tr><td>%d</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td></tr>\n" % (pos, talker.replace("_", " "), messages, words, stickers, photos))
+            out.write("\t<tr><td>%d</td><td>%s</td><td>%d</td><td>%d</td><td>%.1f</td><td>%d</td><td>%d</td></tr>\n" % \
+                (pos, talker.replace("_", " "), messages, words, words / messages, stickers, photos))
             pos += 1
         out.write("</table>\n")
+
+    if not args.no_words:
+
+        out.write("<h2>100 most commonly used words</h2>\n<p>\n")
+        out.write(", ".join([ "%s (%d)" % c for c in most_commonly_used_words()[:100]]))
+        out.write("</p>\n")
 
 
     if not args.no_topics:
