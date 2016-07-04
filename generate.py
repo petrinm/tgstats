@@ -25,7 +25,7 @@ def chat_renames():
                 service["from"]["print_name"].replace("_", " ")
             ))
 
-    return renames
+    return sorted(renames, key=lambda x: x[0], reverse=True)
 
 
 def talker_stats(max_talkers=10):
@@ -77,6 +77,7 @@ def most_commonly_used_words():
             continue
 
         for mword in re.findall('[a-zäöå]{2,}', message["text"], flags=re.IGNORECASE):
+            mword = mword.lower()
             if mword not in words:
                 words[mword] = 1
             else:
@@ -285,9 +286,12 @@ if __name__ == "__main__":
     conn = sqlite3.connect("%s.db" % args.name)
     c = conn.cursor()
 
-    #hourly_rate()s
-    #most_commonly_used_words()
-    #raise
+
+    if 0: # Dump most commonly used words
+        for i, (a, b) in enumerate(most_commonly_used_words()[:1000]):
+            print("%d: %s %d" % (i+1, a, b))
+        raise
+
 
     # Try to create a folder
     try:
