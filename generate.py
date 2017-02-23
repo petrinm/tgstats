@@ -4,7 +4,7 @@ import argparse
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import sqlite3, json, datetime
-import math, os, re
+import time, math, os, re
 
 
 def chat_renames():
@@ -27,7 +27,7 @@ def chat_renames():
     return sorted(renames, key=lambda x: x[0], reverse=True)
 
 
-def talker_stats(max_talkers=10):
+def talker_stats(span=None, max_talkers=10):
     """"
         Return list of top talkers in decending order
     """
@@ -35,7 +35,10 @@ def talker_stats(max_talkers=10):
     print("Getting top talkers...")
     i = 0
     talkers = {}
-    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message";"""):
+
+    before = int(time.time() - span*24*60*60) if span else 0
+
+    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message" AND timestamp >= ?;""", (before, )):
         message = json.loads(message)
         name = message["from"]["print_name"]
 
@@ -61,6 +64,50 @@ def talker_stats(max_talkers=10):
     return talkers.items()
 
 
+def bot_spammers(max_talkers=10):
+
+    print("Getting top bot spammers...")
+    cmds = {}
+    bots = {}
+
+    for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message";"""):
+        message = json.loads(message)
+        name = message["from"]["print_name"]
+
+        if "text" in message and message["text"].startswith("/"):
+
+            cmd = message["text"].strip().split(" ")[0].split("@")[0]
+
+            #print(cmd, "\t", message["text"])
+
+            if cmd in cmds:
+                if name in cmds[cmd]:
+                    cmds[cmd][name] += 1
+                else:
+                    cmds[cmd][name] = 1
+            else:
+                cmds[cmd] = { name: 1 }
+
+        elif name.lower()[-3:]== "bot":
+            # Increase bot's popularity
+            if name in bots:
+                bots[name] += 1
+            else:
+                bots[name] = 1
+
+
+    # Filter Top-6 commands
+    cmds = sorted(cmds.items(), key=lambda x: sum(x[1].values()), reverse=True)[:6]
+
+    # Filter Top-6 users for each command
+    cmds = [(c[0], sorted(c[1].items(), key=lambda x: x[1], reverse=True)[:6]) for c in cmds]
+
+    # Filter Top-5 Bots
+    bots = sorted(bots.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    return cmds, bots
+
+
 def most_commonly_used_words():
     """"
         Return list of most commonly used words
@@ -69,6 +116,7 @@ def most_commonly_used_words():
     print("Getting most commonly used words...")
 
     words = {}
+    users = {}
     for sid, timestamp, message  in c.execute("""SELECT id, timestamp, json FROM messages WHERE event="message";"""):
         message = json.loads(message)
 
@@ -82,6 +130,13 @@ def most_commonly_used_words():
             else:
                 words[mword] += 1
 
+            if mword[0] == "@":
+                if mword not in users:
+                    users[mword] = 1
+                else:
+                    users[mword] += 1
+
+    #print(sorted(users.items(), key=lambda x: x[1], reverse=True)[:10])
     return sorted(words.items(), key=lambda x: x[1], reverse=True)
 
 
@@ -90,7 +145,7 @@ def population_graph(filepath="aski_population.png", show=False):
     print("Creating population graph...")
 
     population = {}
-    total = 4 # TODO: This is random constant!
+    total = 0
 
     prev_date = None
 
@@ -235,6 +290,34 @@ def messages_graph(filepath="messages.png", show=True):
 
 
 
+def popular_emojis():
+
+    print("Searching emojis...")
+
+    highpoints = re.compile(u'['
+        u'\U0001F300-\U0001F5FF'
+        u'\U0001F600-\U0001F64F'
+        u'\U0001F680-\U0001F6FF'
+        u'\u2600-\u26FF\u2700-\u27BF]',
+        re.UNICODE)
+
+    emojis = {}
+
+    for mid, message in c.execute("""SELECT id, json FROM messages WHERE event="message";"""):
+        message = json.loads(message)
+
+        if "text" not in message:
+            continue
+
+        #if len(r) > 0:
+        #print(r, hex(ord(r[0])))
+        for ec in map(ord, highpoints.findall(message["text"])):
+            emojis[ec] = emojis.get(ec, 0) + 1
+
+    return sorted(emojis.items(), key=lambda x: x[1], reverse=True)[:20]
+
+
+
 def activity_graph(filepath="activity.png", show=True):
 
     print("Creating activity graph...")
@@ -275,6 +358,8 @@ if __name__ == "__main__":
     parser.add_argument('--no-talkers', action='store_true', help="Disable top talkers")
     parser.add_argument('--no-topics', action='store_true', help="Disable topic list")
     parser.add_argument('--no-words', action='store_true', help="Disable most commonly used words list")
+    parser.add_argument('--no-bots', action='store_true', help="Disable most commonly used bots/commands list")
+    parser.add_argument('--no-emojis', action='store_true', help="Disable most commonly used emojis list")
     args = parser.parse_args()
 
     if len(args.name) < 3:
@@ -282,12 +367,6 @@ if __name__ == "__main__":
 
     conn = sqlite3.connect("%s.db" % args.name)
     c = conn.cursor()
-
-
-    if 0: # Dump most commonly used words
-        for i, (a, b) in enumerate(most_commonly_used_words()[:1000]):
-            print("%d: %s %d" % (i+1, a, b))
-        raise
 
 
     # Try to create a folder
@@ -311,6 +390,7 @@ if __name__ == "__main__":
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>%s Telegram Statistics</title>
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" crossorigin="anonymous">
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js" crossorigin="anonymous"></script>
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" crossorigin="anonymous"></script>
 
     </head><body>
@@ -348,8 +428,8 @@ if __name__ == "__main__":
 
         out.write("<tr><td>Messages</td><td>%d</td></tr>\n" % messages)
         out.write("<tr><td>Top speed</td><td>%d messages/hour (%s-%s)</td></tr>\n" % (top_rate, top_start.strftime("%d. %B %Y %I:%M"), top_end.strftime("%I:%M")))
-        out.write("<tr><td>Stickers</td><td>%d</td></tr>\n" % stickers)
-        out.write("<tr><td>Media</td><td>%d</td></tr>\n" % photos)
+        out.write("<tr><td>Stickers</td><td>%d (%.1f%% of messages)</td></tr>\n" % (stickers, (100.0 * stickers) / messages))
+        out.write("<tr><td>Media</td><td>%d (%.1f%% of messages)</td></tr>\n" % (photos, (100.0 * photos) / messages))
         #out.write("<tr><td>Videos</td><td>TODO</td></tr>\n")
         #out.write("<tr><td>Audio</td><td>TODO</td></tr>\n")
         out.write("</table>\n")
@@ -357,16 +437,62 @@ if __name__ == "__main__":
 
     if not args.no_talkers:
 
-        top_talkers = sorted(talkers, key=lambda x: x[1][0], reverse=True)[:15]
+        out.write("<h2>Top 15 Talkers</h2>\n")
 
-        out.write("<h2>Top 15 Talkers</h2>\n<table class='table tabler-striped'>\n")
-        out.write("\t<tr><th>#</th><th>Talker</th><th>Messages</th><th>Words</th><th>WPM</th><th>Stickers</th><th>Media</th></tr>\n")
-        pos = 1
-        for talker, (messages, words, stickers, photos) in top_talkers:
-            out.write("\t<tr><td>%d</td><td>%s</td><td>%d</td><td>%d</td><td>%.1f</td><td>%d</td><td>%d</td></tr>\n" % \
-                (pos, talker.replace("_", " "), messages, words, words / messages, stickers, photos))
-            pos += 1
-        out.write("</table>\n")
+        out.write("<ul class=\"nav nav-tabs\">" \
+                  "<li class=\"active\"><a data-toggle=\"tab\" href=\"#all\">All-time</a></li>"\
+                  "<li><a data-toggle=\"tab\" href=\"#week\">Last week</a></li>" \
+                  "<li><a data-toggle=\"tab\" href=\"#month\">Last month</a></li>"\
+                  "<li><a data-toggle=\"tab\" href=\"#year\">Last year</a></li></ul>" \
+                  "<div class=\"tab-content\">\n")
+
+        timeranges = [
+            ("all", "active", 3600),
+            ("week", "", 7),
+            ("month", "", 31),
+            ("year", "", 365)
+        ]
+
+
+        for trange, active, span in timeranges:
+
+            talks = talkers if trange == "all" else talker_stats(span)
+            top_talkers = sorted(talks, key=lambda x: x[1][0], reverse=True)[:15]
+
+            out.write("<div id=\"%s\" class=\"tab-pane %s\"><table class='table tabler-striped'>\n" % (trange, active))
+            out.write("\t<tr><th>#</th><th>Talker</th><th>Messages</th><th>Words</th><th>WPM</th><th>Stickers</th><th>Media</th></tr>\n")
+            pos = 1
+            for talker, (messages, words, stickers, photos) in top_talkers:
+                out.write("\t<tr><td>%d</td><td>%s</td><td>%d</td><td>%d</td><td>%.1f</td><td>%d</td><td>%d</td></tr>\n" % \
+                    (pos, talker.replace("_", " "), messages, words, words / messages, stickers, photos))
+                pos += 1
+            out.write("</table></div>\n")
+
+    if not args.no_bots:
+
+        cmds, bots = bot_spammers()
+
+        out.write("<h2>Bot spammers</h2>\n<b>Most used bots:</b> ")
+        for bot, count in bots:
+            out.write("%s (%d), " % (bot, count))
+
+        out.write("\n<table class='table'><tr>\n")
+
+        for cmd, users in cmds:
+            out.write("<td><b>%s</b><br/>" % cmd)
+            for user, count in users:
+                out.write("%s (%d), <br/>" % (user.replace("_", " "), count))
+            out.write("</td>\n")
+
+        out.write("</tr></table>\n")
+
+
+    if not args.no_emojis:
+        out.write("<h2>Most popular emojis</h2>\n")
+
+        for emoji, count in popular_emojis():
+            out.write("<img width=\"32px\" src=\"http://emojione.com/wp-content/uploads/assets/emojis/%x.svg\" title=\"%d uses\"/>" % (emoji, count))
+
 
     if not args.no_words:
 
